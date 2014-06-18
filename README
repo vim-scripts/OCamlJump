@@ -1,0 +1,18 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=4963
+
+OCaml is a great language but still greater can be done.
+Especially, about syntax, I feel every 'delimiting' things should be made easily 'jumpables'.
+
+This plugin add a leader j ( \j ) shortcut allowing to jump from a 'let' to its matching 'in' or the reverse ('in' to 'let').
+'let' or 'in' contained in comments or string are subtly ignored.
+
+###################
+
+Ocaml estas mojosa programlingvo tamen povas ankoraû esti pli bona.
+Speciale, pri sintakso, mi pensas ke ĉiuj 'disigiloj' devas esti facile 'salteblaj'.
+
+Tio aldonaĵo proponas klavosignon (ĉefklavo j ( \j ) ) kiu saltagas la skribmarkon el 'let' al la kongrua 'in' kaj inverso.
+'let' aû 'in' entenita en komentoj aû signoĉenoj estas ignorataj.
+
+
+
