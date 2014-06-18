@@ -7,17 +7,20 @@
 "              Vincent Aravantinos <firstname.name@imag.fr>
 " URL:         http://www.ocaml.info/vim/ftplugin/ocaml.vim
 " Last Change:
-"              2012 Jan 15 - Bugfix :reloading .annot file does not close
-"              splitted view (Pierre Vittet)
-"              2011 Nov 28 - Bugfix + support of multiple ml annotation file
-"              (Pierre Vittet)
-"              2010 Jul 10 - Bugfix, thanks to Pat Rondon
-"              2008 Jul 17 - Bugfix related to fnameescape (VA)
+"              2013 Jul 26 - load default compiler settings (MM)
+"              2013 Jul 24 - removed superfluous efm-setting (MM)
+"              2013 Jul 22 - applied fixes supplied by Hirotaka Hamada (MM)
+"              2013 Mar 15 - Improved error format (MM)
 
 if exists("b:did_ftplugin")
   finish
 endif
 let b:did_ftplugin=1
+
+" Use standard compiler settings unless user wants otherwise
+if !exists("current_compiler")
+  :compiler ocaml
+endif
 
 " some macro
 if exists('*fnameescape')
@@ -33,38 +36,27 @@ endif
 " Error handling -- helps moving where the compiler wants you to go
 let s:cposet=&cpoptions
 set cpo&vim
-setlocal efm=
-      \%EFile\ \"%f\"\\,\ line\ %l\\,\ characters\ %c-%*\\d:,
-      \%EFile\ \"%f\"\\,\ line\ %l\\,\ character\ %c:%m,
-      \%+EReference\ to\ unbound\ regexp\ name\ %m,
-      \%Eocamlyacc:\ e\ -\ line\ %l\ of\ \"%f\"\\,\ %m,
-      \%Wocamlyacc:\ w\ -\ %m,
-      \%-Zmake%.%#,
-      \%C%m,
-      \%D%*\\a[%*\\d]:\ Entering\ directory\ `%f',
-      \%X%*\\a[%*\\d]:\ Leaving\ directory\ `%f',
-      \%D%*\\a:\ Entering\ directory\ `%f',
-      \%X%*\\a:\ Leaving\ directory\ `%f',
-      \%DMaking\ %*\\a\ in\ %f
 
 " Add mappings, unless the user didn't want this.
 if !exists("no_plugin_maps") && !exists("no_ocaml_maps")
   " (un)commenting
   if !hasmapto('<Plug>Comment')
     nmap <buffer> <LocalLeader>c <Plug>LUncomOn
-    vmap <buffer> <LocalLeader>c <Plug>BUncomOn
+    xmap <buffer> <LocalLeader>c <Plug>BUncomOn
     nmap <buffer> <LocalLeader>C <Plug>LUncomOff
-    vmap <buffer> <LocalLeader>C <Plug>BUncomOff
+    xmap <buffer> <LocalLeader>C <Plug>BUncomOff
   endif
 
-  nnoremap <buffer> <Plug>LUncomOn mz0i(* <ESC>$A *)<ESC>`z
+  nnoremap <buffer> <Plug>LUncomOn gI(* <End> *)<ESC>
   nnoremap <buffer> <Plug>LUncomOff :s/^(\* \(.*\) \*)/\1/<CR>:noh<CR>
-  vnoremap <buffer> <Plug>BUncomOn <ESC>:'<,'><CR>`<O<ESC>0i(*<ESC>`>o<ESC>0i*)<ESC>`<
-  vnoremap <buffer> <Plug>BUncomOff <ESC>:'<,'><CR>`<dd`>dd`<
+  xnoremap <buffer> <Plug>BUncomOn <ESC>:'<,'><CR>`<O<ESC>0i(*<ESC>`>o<ESC>0i*)<ESC>`<
+  xnoremap <buffer> <Plug>BUncomOff <ESC>:'<,'><CR>`<dd`>dd`<
 
-  if !hasmapto('<Plug>Abbrev')
-    iabbrev <buffer> ASS (assert (0=1) (* XXX *))
-  endif
+  nmap <buffer> <LocalLeader>s <Plug>OCamlSwitchEdit
+  nmap <buffer> <LocalLeader>S <Plug>OCamlSwitchNewWin
+
+  nmap <buffer> <LocalLeader>t <Plug>OCamlPrintType
+  xmap <buffer> <LocalLeader>t <Plug>OCamlPrintType
 endif
 
 " Let % jump between structure elements (due to Issac Trotts)
@@ -81,8 +73,8 @@ let b:match_ignorecase=0
 " switching between interfaces (.mli) and implementations (.ml)
 if !exists("g:did_ocaml_switch")
   let g:did_ocaml_switch = 1
-  map <LocalLeader>s :call OCaml_switch(0)<CR>
-  map <LocalLeader>S :call OCaml_switch(1)<CR>
+  nnoremap <Plug>OCamlSwitchEdit :<C-u>call OCaml_switch(0)<CR>
+  nnoremap <Plug>OCamlSwitchNewWin :<C-u>call OCaml_switch(1)<CR>
   fun OCaml_switch(newwin)
     if (match(bufname(""), "\\.mli$") >= 0)
       let fname = s:Fnameescape(substitute(bufname(""), "\\.mli$", ".ml", ""))
@@ -138,6 +130,10 @@ if exists("g:ocaml_folding")
   setlocal foldmethod=expr
   setlocal foldexpr=OMLetFoldLevel(v:lnum)
 endif
+
+let b:undo_ftplugin = "setlocal efm< foldmethod< foldexpr<"
+	\ . "| unlet! b:mw b:match_words b:match_ignorecase"
+
 
 " - Only definitions below, executed once -------------------------------------
 
@@ -391,7 +387,7 @@ endfunction
       " After call:
       " The current buffer is now the one containing the .annot file.
       " We manage to keep all this hidden to the user's eye.
-    function! s:Enter_hidden_buffer(annot_file_path)
+    function! s:Enter_annotation_buffer(annot_file_path)
       let s:current_pos = getpos('.')
       let s:current_hidden = &l:hidden
       set hidden
@@ -406,7 +402,7 @@ endfunction
 
       " After call:
       "   The original buffer has been restored in the exact same state as before.
-    function! s:Exit_hidden_buffer()
+    function! s:Exit_annotation_buffer()
       silent exe 'keepj keepalt' 'buffer' s:Fnameescape(s:current_buf)
       let &l:hidden = s:current_hidden
       call setpos('.',s:current_pos)
@@ -429,12 +425,12 @@ endfunction
         silent exe 'keepj keepalt' 'bunload' nr
       endif
       if !bufloaded(annot_file_path)
-        call s:Enter_hidden_buffer(annot_file_path)
+        call s:Enter_annotation_buffer(annot_file_path)
         setlocal nobuflisted
         setlocal bufhidden=hide
         setlocal noswapfile
         setlocal buftype=nowrite
-        call s:Exit_hidden_buffer()
+        call s:Exit_annotation_buffer()
         let annot[2] = getftime(annot_file_path)
         " List updated with the new date
         let s:annot_file_list[a:annot_file_name] = annot
@@ -489,7 +485,7 @@ endfunction
       " Should be called in the annotation buffer
     function! s:Extract_type_data(block_pattern, annot_file_name)
       let annot_file_path = s:annot_file_list[a:annot_file_name][0]
-      call s:Enter_hidden_buffer(annot_file_path)
+      call s:Enter_annotation_buffer(annot_file_path)
       try
         if search(a:block_pattern,'e') == 0
           throw "no_annotation"
@@ -497,7 +493,7 @@ endfunction
         call cursor(line(".") + 1,1)
         let annotation = s:Match_data()
       finally
-        call s:Exit_hidden_buffer()
+        call s:Exit_annotation_buffer()
       endtry
       return annotation
     endfun
@@ -567,7 +563,6 @@ endfunction
       return res
     endfunction
 
-
   "d. main
       "In:         the current mode (eg. "visual", "normal", etc.)
       "After call: the type information is displayed
@@ -577,7 +572,7 @@ endfunction
         call s:Locate_annotation()
         call s:Load_annotation(annot_file_name)
 	let res = s:Get_type(a:mode, annot_file_name)
-	"Copy result in the unnamed buffer
+        " Copy result in the unnamed buffer
 	let @" = s:unformat_ocaml_type(res)
         return res
       endfun
@@ -587,7 +582,8 @@ endfunction
       function Ocaml_get_type_or_not(mode)
         let t=reltime()
         try
-          return Ocaml_get_type(a:mode)
+          let res = Ocaml_get_type(a:mode)
+          return res
         catch
           return ""
         endtry
@@ -615,8 +611,8 @@ endfunction
     endif
 
 " Maps
-  map  <silent> <LocalLeader>t :call Ocaml_print_type("normal")<CR>
-  vmap <silent> <LocalLeader>t :<C-U>call Ocaml_print_type("visual")<CR>`<
+  nnoremap <silent> <Plug>OCamlPrintType :<C-U>call Ocaml_print_type("normal")<CR>
+  xnoremap <silent> <Plug>OCamlPrintType :<C-U>call Ocaml_print_type("visual")<CR>`<
 
 let &cpoptions=s:cposet
 unlet s:cposet
@@ -940,3 +936,6 @@ endpython
 endfun
 
 map  <silent> <LocalLeader>j :call Ocaml_jump_sccope()<CR>
+
+
+" vim:sw=2 fdm=indent
